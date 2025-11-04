@@ -480,20 +480,10 @@ class PythonCodeProcessor:
 
 # Example usage
 if __name__ == '__main__':
-    # Sample code
-    sample_code = """
-def rotate(x, y, degree):
-    '''Rotate a coordinate around point (0,0).'''
-    radian = float(degree) * 2 * math.pi / 360.0
-    newx = math.cos(radian) * x - math.sin(radian) * y
-    newy = math.sin(radian) * x + math.cos(radian) * y
-    return (newx, newy)
-"""
-
     with open("dataset/python/train.jsonl", "r") as f:
         lines = f.readlines()
     data = [json.loads(line) for line in lines]
-    sample_code = str(data[0]['code'])
+    sample_code = str(data[15730]['code'])
     print(sample_code)
     # Initialize processor
     processor = PythonCodeProcessor(embedding_size=128)

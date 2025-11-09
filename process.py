@@ -1,12 +1,37 @@
 import ast
 import json
+import warnings
+import sys
+import io
 from gensim.models.word2vec import Word2Vec
 import numpy as np
 import networkx as nx
-from lib2to3.refactor import RefactoringTool, get_fixers_from_package
 import textwrap
+import libcst as cst
+from tqdm import tqdm
 
 from ast_tree_python import ASTNode, BlockNode, SingleNode
+
+# Suppress SyntaxWarning globally for this module
+warnings.filterwarnings('ignore', category=SyntaxWarning)
+
+class SyntaxWarningFilter:
+    """Custom stderr filter that suppresses SyntaxWarning messages while preserving other output."""
+    def __init__(self, original_stderr):
+        self.original_stderr = original_stderr
+    
+    def write(self, s):
+        # Filter out SyntaxWarning lines
+        if 'SyntaxWarning' not in s:
+            self.original_stderr.write(s)
+        return len(s)
+    
+    def flush(self):
+        self.original_stderr.flush()
+    
+    def __getattr__(self, name):
+        # Delegate all other attributes to original_stderr
+        return getattr(self.original_stderr, name)
 
 class PythonCodeProcessor:
     """Process Python code strings into various AST representations."""
@@ -20,13 +45,23 @@ class PythonCodeProcessor:
         
     def convert_code_snippet(self, code_str):
         try:
-            fixers = get_fixers_from_package("lib2to3.fixes")
-            tool = RefactoringTool(fixers)
+            #Changed to fit with python3 
             cleaned = textwrap.dedent(code_str).replace("\r", "").rstrip() + "\n"
-            refactored = tool.refactor_string(cleaned, name="snippet")
-            return str(refactored)
+            # Suppress SyntaxWarning and filter stderr to prevent breaking TQDM progress bar
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', SyntaxWarning)
+                # Filter stderr to suppress SyntaxWarning messages
+                old_stderr = sys.stderr
+                filtered_stderr = SyntaxWarningFilter(old_stderr)
+                sys.stderr = filtered_stderr
+                try:
+                    module = cst.parse_module(cleaned)
+                    formatted = module.code
+                finally:
+                    sys.stderr = old_stderr
+            return formatted
         except Exception as e:
-            print("Conversion failed for snippet:", e)
+            tqdm.write(f"Conversion failed for snippet: {e}")
             #print(code_str)
             return code_str
         
@@ -34,10 +69,20 @@ class PythonCodeProcessor:
         """Parse a Python code string into an AST tree."""
         try:
             code_string = self.convert_code_snippet(code_string)
-            tree = ast.parse(code_string)
+            # Suppress SyntaxWarning and filter stderr to prevent breaking TQDM progress bar
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', SyntaxWarning)
+                # Filter stderr to suppress SyntaxWarning messages
+                old_stderr = sys.stderr
+                filtered_stderr = SyntaxWarningFilter(old_stderr)
+                sys.stderr = filtered_stderr
+                try:
+                    tree = ast.parse(code_string)
+                finally:
+                    sys.stderr = old_stderr
             return tree
         except SyntaxError as e:
-            print(f"Syntax error in code: {e}")
+            tqdm.write(f"Syntax error in code: {e}")
             return None
     
     def get_ast_node(self, code_string):

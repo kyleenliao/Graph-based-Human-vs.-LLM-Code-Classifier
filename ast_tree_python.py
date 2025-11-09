@@ -21,20 +21,12 @@ class ASTNode(object):
         is_name = False
         
         if self.is_leaf():
-            # Handle leaf nodes with specific attributes
-            if hasattr(self.node, 'id'):  # Name node
-                token = self.node.id
-                is_name = True
-            elif hasattr(self.node, 'name'):  # FunctionDef, ClassDef, etc.
-                token = self.node.name
-                is_name = True
-            elif hasattr(self.node, 'value'):  # Constant/Num/Str nodes
-                token = str(self.node.value) if hasattr(self.node, 'value') else name
-            elif hasattr(self.node, 'arg'):  # arguments
-                token = self.node.arg
-                is_name = True
-            else:
-                token = name
+            for name_check in ['id', 'name', 'value', 'arg']:
+                if hasattr(self.node, name_check):
+                    token = getattr(self.node, name_check)
+                    if name_check != 'value':
+                        is_name = True
+                    break
         else:
             # Handle operators
             if hasattr(self.node, 'op'):
@@ -56,15 +48,15 @@ class ASTNode(object):
             return []
         
         children = list(ast.iter_child_nodes(self.node))
+
+        #Hmmm ... how do we add children for loops? I am tempted to say that we should not treat the conditional of an if in the same way that we treat the code inside of it
+        #But I also think that this might not be a problem, so if it is later we can come back to
         
         # Python-specific control flow handling
         if self.token in ['FunctionDef', 'AsyncFunctionDef']:
             # Return only the body, skip decorators, args, returns
             return [ASTNode(child) for child in self.node.body]
-        elif self.token in ['If']:
-            # Return only the test condition
-            return [ASTNode(self.node.test)]
-        elif self.token in ['While']:
+        elif self.token in ['If', 'While']:
             return [ASTNode(self.node.test)]
         elif self.token == 'For':
             # Return target and iter, skip body
@@ -76,7 +68,6 @@ class ASTNode(object):
             return result
         else:
             return [ASTNode(child) for child in children]
-
 
 class BlockNode(object):
     def __init__(self, node):

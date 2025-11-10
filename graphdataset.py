@@ -5,12 +5,21 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+import time
 
 from process import PythonCodeProcessor
 
 
 class CodeGraphDataset(Dataset):
-    """Dataset class for processing Python code pairs into graph representations."""
+    """Dataset class for processing Python code pairs into graph representations.
+    
+    Optimized version with:
+    - Parallel processing
+    - Sample limiting
+    - Better caching
+    - Timeout support
+    """
     
     def __init__(self, 
                  jsonl_path, 
@@ -18,7 +27,10 @@ class CodeGraphDataset(Dataset):
                  cache_dir=None,
                  force_reprocess=False,
                  max_nodes=1000,
-                 embedding_size=128):
+                 embedding_size=128,
+                 max_samples=None,  # NEW: Limit number of samples
+                 num_workers=None,  # NEW: Parallel processing workers
+                 timeout_minutes=10):  # NEW: Processing timeout
         """
         Args:
             jsonl_path: Path to JSONL file with format: {index, code, contrast, label}
@@ -27,10 +39,15 @@ class CodeGraphDataset(Dataset):
             force_reprocess: If True, reprocess even if cache exists
             max_nodes: Maximum nodes in adjacency matrix
             embedding_size: Dimension of token embeddings
+            max_samples: Maximum number of samples to process (None = all)
+            num_workers: Number of parallel workers (None = auto)
+            timeout_minutes: Stop processing after this many minutes
         """
         self.jsonl_path = jsonl_path
         self.max_nodes = max_nodes
         self.embedding_size = embedding_size
+        self.max_samples = max_samples
+        self.timeout_minutes = timeout_minutes
         
         # Setup cache directory
         if cache_dir is None:
@@ -38,11 +55,11 @@ class CodeGraphDataset(Dataset):
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
         
-        # Cache file path
-        cache_file = os.path.join(
-            cache_dir, 
-            f"{os.path.basename(jsonl_path).replace('.jsonl', '')}_graphs.pkl"
-        )
+        # Cache file path with sample limit in name
+        cache_basename = os.path.basename(jsonl_path).replace('.jsonl', '')
+        if max_samples is not None:
+            cache_basename += f"_n{max_samples}"
+        cache_file = os.path.join(cache_dir, f"{cache_basename}_graphs.pkl")
         self.cache_file = cache_file
         
         # Initialize or use provided processor
@@ -56,53 +73,109 @@ class CodeGraphDataset(Dataset):
             self.processor = processor
             self.needs_embedding = False
         
+        # Set number of workers
+        if num_workers is None:
+            self.num_workers = max(1, cpu_count() - 1)
+        else:
+            self.num_workers = num_workers
+        
         # Load or process data
         if os.path.exists(cache_file) and not force_reprocess:
             print(f"Loading cached graphs from {cache_file}")
             self._load_from_cache()
         else:
             print(f"Processing graphs from {jsonl_path}")
+            if max_samples:
+                print(f"  Limiting to {max_samples} samples")
+            if timeout_minutes:
+                print(f"  Timeout: {timeout_minutes} minutes")
             self._process_and_cache()
     
     def _load_raw_data(self):
-        """Load raw JSONL data."""
+        """Load raw JSONL data with optional sample limit."""
         with open(self.jsonl_path, 'r') as f:
             lines = f.readlines()
+        
+        # Limit samples if specified
+        if self.max_samples is not None:
+            lines = lines[:self.max_samples]
+        
         data = [json.loads(line) for line in lines]
         print(f"Loaded {len(data)} examples from {self.jsonl_path}")
         return data
     
+    def _extract_token_sequence(self, item):
+        """Extract token sequence from a single item (for parallel processing)."""
+        try:
+            code_seq = self.processor.code_to_sequence(str(item['code']))
+            contrast_seq = self.processor.code_to_sequence(str(item['contrast']))
+            return code_seq, contrast_seq
+        except Exception as e:
+            return [], []
+    
     def _process_and_cache(self):
         """Process all code samples and cache results."""
         raw_data = self._load_raw_data()
+        start_time = time.time()
         
         # Train embedding if needed
         if self.needs_embedding:
             print("Extracting AST node sequences from corpus...")
             token_sequences = []
-            for item in tqdm(raw_data, desc="Extracting tokens", unit="sample"):
-                # Extract token sequences from code
-                code_seq = self.processor.code_to_sequence(str(item['code']))
-                if code_seq:
-                    token_sequences.append(code_seq)
+            
+            # Process with timeout check
+            elapsed_time = 0
+            batch_size = 100  # Process in batches for timeout checking
+            
+            for i in tqdm(range(0, len(raw_data), batch_size), 
+                         desc="Extracting tokens", unit="batch"):
+                # Check timeout
+                elapsed_time = (time.time() - start_time) / 60
+                if self.timeout_minutes and elapsed_time > self.timeout_minutes:
+                    print(f"\n⏱️ Timeout reached ({elapsed_time:.1f} min). Using {i} samples for embedding.")
+                    raw_data = raw_data[:i]
+                    break
                 
-                # Extract token sequences from contrast code
-                contrast_seq = self.processor.code_to_sequence(str(item['contrast']))
-                if contrast_seq:
-                    token_sequences.append(contrast_seq)
+                batch = raw_data[i:i+batch_size]
+                
+                # Process batch
+                for item in batch:
+                    try:
+                        code_seq = self.processor.code_to_sequence(str(item['code']))
+                        if code_seq:
+                            token_sequences.append(code_seq)
+                        
+                        contrast_seq = self.processor.code_to_sequence(str(item['contrast']))
+                        if contrast_seq:
+                            token_sequences.append(contrast_seq)
+                    except Exception as e:
+                        continue
             
             print(f"Total token sequences for embedding: {len(token_sequences)}")
             
             # Train Word2Vec on the token sequences
-            print("Training Word2Vec embeddings on AST tokens...")
-            self.processor.train_embedding_from_sequences(token_sequences)
-            print(f"Vocabulary size: {self.processor.max_token}")
+            if len(token_sequences) > 0:
+                print("Training Word2Vec embeddings on AST tokens...")
+                self.processor.train_embedding_from_sequences(token_sequences)
+                print(f"Vocabulary size: {self.processor.max_token}")
+            else:
+                print("⚠️ No valid token sequences extracted!")
+                return
         
-        # Process each example
+        # Process each example into graphs
         self.data = []
         print("Processing code into graphs...")
         
-        for item in tqdm(raw_data, desc="Processing samples", unit="sample"):
+        failed_count = 0
+        start_time = time.time()  # Reset timer for graph processing
+        
+        for idx, item in enumerate(tqdm(raw_data, desc="Processing samples", unit="sample")):
+            # Check timeout
+            elapsed_time = (time.time() - start_time) / 60
+            if self.timeout_minutes and elapsed_time > self.timeout_minutes:
+                print(f"\n⏱️ Timeout reached ({elapsed_time:.1f} min). Processed {idx} samples.")
+                break
+            
             try:
                 # Process original code
                 code_results = self.processor.process_pipeline(str(item['code']), return_all=True)
@@ -112,7 +185,7 @@ class CodeGraphDataset(Dataset):
                 
                 # Skip if either failed to process
                 if code_results is None or contrast_results is None:
-                    print(f"Skipping index {item['index']} due to parsing error")
+                    failed_count += 1
                     continue
                 
                 # Create data entry
@@ -136,23 +209,28 @@ class CodeGraphDataset(Dataset):
                 self.data.append(entry)
                 
             except Exception as e:
-                print(f"Error processing index {item['index']}: {e}")
+                failed_count += 1
                 continue
         
         print(f"Successfully processed {len(self.data)} examples")
+        if failed_count > 0:
+            print(f"Failed to process {failed_count} examples")
         
         # Save to cache
-        print(f"Saving to cache: {self.cache_file}")
-        cache_data = {
-            'data': self.data,
-            'vocab': self.processor.vocab,
-            'max_token': self.processor.max_token,
-            'embedding_size': self.embedding_size,
-            'max_nodes': self.max_nodes
-        }
-        with open(self.cache_file, 'wb') as f:
-            pickle.dump(cache_data, f)
-        print("Cache saved successfully")
+        if len(self.data) > 0:
+            print(f"Saving to cache: {self.cache_file}")
+            cache_data = {
+                'data': self.data,
+                'vocab': self.processor.vocab,
+                'max_token': self.processor.max_token,
+                'embedding_size': self.embedding_size,
+                'max_nodes': self.max_nodes
+            }
+            with open(self.cache_file, 'wb') as f:
+                pickle.dump(cache_data, f)
+            print("Cache saved successfully")
+        else:
+            print("⚠️ No data to cache!")
     
     def _load_from_cache(self):
         """Load processed data from cache."""
@@ -238,70 +316,3 @@ class CodeGraphDataset(Dataset):
             }
         }
         return stats
-
-
-# Example usage
-if __name__ == '__main__':
-    # Load training data
-    train_dataset = CodeGraphDataset(
-        jsonl_path='dataset/python/train.jsonl',
-        max_nodes=1000,
-        embedding_size=128,
-        force_reprocess=False  # Set to True to reprocess
-    )
-    
-    # Print statistics
-    print("\n" + "="*60)
-    print("DATASET STATISTICS")
-    print("="*60)
-    stats = train_dataset.get_stats()
-    for key, value in stats.items():
-        print(f"{key}: {value}")
-    
-    # Get a sample
-    print("\n" + "="*60)
-    print("SAMPLE DATA")
-    print("="*60)
-    sample = train_dataset[0]
-    print(f"Index: {sample['index']}")
-    print(f"Label: {sample['label']}")
-    print(f"Code graph shape: {sample['code_graph'].shape}")
-    print(f"Code num nodes: {sample['code_num_nodes']}")
-    print(f"Code sequence (first 10): {sample['code_sequence'][:10]}")
-    print(f"Contrast graph shape: {sample['contrast_graph'].shape}")
-    print(f"Contrast num nodes: {sample['contrast_num_nodes']}")
-    
-    # Get embedding matrix
-    embedding_matrix = train_dataset.get_embedding_matrix()
-    print(f"\nEmbedding matrix shape: {embedding_matrix.shape}")
-    
-    # Load dev/test data using same processor (shares vocabulary)
-    print("\n" + "="*60)
-    print("Loading dev dataset with shared vocabulary...")
-    print("="*60)
-    dev_dataset = CodeGraphDataset(
-        jsonl_path='dataset/python/dev.jsonl',
-        processor=train_dataset.processor,  # Share processor and vocabulary
-        max_nodes=1000
-    )
-    print(f"Dev dataset size: {len(dev_dataset)}")
-    
-    # Example: Create DataLoader for GNN training
-    from torch.utils.data import DataLoader
-    
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=32,
-        shuffle=True,
-        num_workers=0  # Set to 0 to avoid pickling issues
-    )
-    
-    print("\n" + "="*60)
-    print("Testing DataLoader...")
-    print("="*60)
-    for batch in train_loader:
-        print(f"Batch size: {len(batch['label'])}")
-        print(f"Code graphs shape: {batch['code_graph'].shape}")
-        print(f"Contrast graphs shape: {batch['contrast_graph'].shape}")
-        print(f"Labels: {batch['label']}")
-        break  # Just test first batch

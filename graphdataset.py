@@ -246,18 +246,39 @@ class CodeGraphDataset(Dataset):
     def __len__(self):
         return len(self.data)
     
+    def _sequence_to_indices(self, sequence):
+        """Convert token strings to vocabulary indices."""
+        if self.processor.vocab is None:
+            return [0] * len(sequence)
+        
+        indices = []
+        for token in sequence:
+            if isinstance(token, str):
+                # Token is a string - convert to index
+                idx = self.processor.vocab.key_to_index.get(token, self.processor.max_token)
+                indices.append(idx)
+            else:
+                # Already an index
+                indices.append(int(token))
+        
+        return indices
+    
     def __getitem__(self, idx):
         """
         Returns:
             Dictionary with:
                 - code_graph: adjacency matrix (max_nodes, max_nodes)
                 - contrast_graph: adjacency matrix (max_nodes, max_nodes)
-                - code_features: node feature indices or embeddings
-                - contrast_features: node feature indices or embeddings
+                - code_sequence: list of vocabulary indices (integers)
+                - contrast_sequence: list of vocabulary indices (integers)
                 - label: classification label
                 - index: original index
         """
         item = self.data[idx]
+        
+        # Convert token sequences to indices
+        code_seq_indices = self._sequence_to_indices(item['code_sequence'])
+        contrast_seq_indices = self._sequence_to_indices(item['contrast_sequence'])
         
         # Convert to tensors
         return {
@@ -267,12 +288,12 @@ class CodeGraphDataset(Dataset):
             # Code graph data
             'code_graph': torch.from_numpy(item['code_graph']).float(),
             'code_num_nodes': item['code_num_nodes'],
-            'code_sequence': item['code_sequence'],
+            'code_sequence': code_seq_indices,  # Now integer indices
             
             # Contrast graph data
             'contrast_graph': torch.from_numpy(item['contrast_graph']).float(),
             'contrast_num_nodes': item['contrast_num_nodes'],
-            'contrast_sequence': item['contrast_sequence'],
+            'contrast_sequence': contrast_seq_indices,  # Now integer indices
         }
     
     def get_embedding_matrix(self):

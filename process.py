@@ -5,8 +5,8 @@ import numpy as np
 import networkx as nx
 from lib2to3.refactor import RefactoringTool, get_fixers_from_package
 import textwrap
-
-from ast_tree_python import ASTNode, BlockNode, SingleNode
+import astpretty
+from ast_tree_python import ASTNode, BlockNode, SingleNode, instantiate_AST_Tree
 
 class PythonCodeProcessor:
     """Process Python code strings into various AST representations."""
@@ -19,6 +19,7 @@ class PythonCodeProcessor:
         self.max_nodes = max_nodes
         
     def convert_code_snippet(self, code_str):
+        #print(code_str)
         try:
             fixers = get_fixers_from_package("lib2to3.fixes")
             tool = RefactoringTool(fixers)
@@ -26,15 +27,17 @@ class PythonCodeProcessor:
             refactored = tool.refactor_string(cleaned, name="snippet")
             return str(refactored)
         except Exception as e:
-            print("Conversion failed for snippet:", e)
-            #print(code_str)
-            return code_str
-        
+            #we sort of convert anyway so I'm commenting this out!
+            #print("Conversion failed for snippet:", e)
+            cleaned_codestr = textwrap.dedent(code_str).replace("\r", "").rstrip() + "\n"
+            return cleaned_codestr
+
     def parse_code(self, code_string):
         """Parse a Python code string into an AST tree."""
         try:
             code_string = self.convert_code_snippet(code_string)
             tree = ast.parse(code_string)
+            #astpretty.pprint(tree, show_offsets=False)
             return tree
         except SyntaxError as e:
             print(f"Syntax error in code: {e}")
@@ -45,14 +48,17 @@ class PythonCodeProcessor:
         tree = self.parse_code(code_string)
         if tree is None:
             return None
-        return ASTNode(tree)
+        root_node, edges, node_label_dict = instantiate_AST_Tree(tree, unique_nodes=False)
+        return root_node, edges, node_label_dict
     
     def get_block_node(self, code_string):
         """Convert code string to BlockNode representation."""
-        tree = self.parse_code(code_string)
-        if tree is None:
-            return None
-        return BlockNode(tree)
+        # tree = self.parse_code(code_string)
+        # if tree is None:
+        #     return None
+        # return BlockNode(tree)
+        root_node, edges, node_label_dict = self.get_ast_node(code_string)
+        return root_node
     
     def get_sequence(self, node, sequence=None):
         """Extract token sequence from AST node (depth-first traversal)."""
@@ -78,7 +84,7 @@ class PythonCodeProcessor:
     
     def code_to_sequence(self, code_string):
         """Convert code string directly to token sequence."""
-        ast_node = self.get_ast_node(code_string)
+        ast_node, edges, node_label_dict = self.get_ast_node(code_string)
         if ast_node is None:
             return []
         return self.get_sequence(ast_node)
@@ -132,7 +138,7 @@ class PythonCodeProcessor:
         
         num_nodes = len(connections)
         adj_matrix = np.zeros((max_size, max_size), dtype='bool_')
-        
+
         for i in range(num_nodes):
             # Self-loop
             adj_matrix[i][i] = True
@@ -142,6 +148,30 @@ class PythonCodeProcessor:
             adj_matrix[parent][i] = True
         
         return adj_matrix
+
+    def create_adjacency_matrix_from_edges(self, edges, num_nodes):
+        adj = np.zeros((num_nodes, num_nodes), dtype=bool)
+        for i in range(num_nodes):
+            adj[i][i] = True
+
+        id_dict = {}
+        node_count = 0
+
+        def get_id(node):
+            nonlocal node_count
+            if node.token not in id_dict:
+                id_dict[node.token] = node_count
+                node_count += 1
+            return id_dict[node.token]
+
+        for child, child_token, parent in edges:
+            parent_id = get_id(parent)
+            child_id = get_id(child)
+
+            adj[child_id][parent_id] = True
+            adj[parent_id][child_id] = True
+        
+        return adj
     
     def code_to_graph(self, code_string):
         """Convert code to graph adjacency matrix.
@@ -150,15 +180,17 @@ class PythonCodeProcessor:
             adjacency_matrix: Boolean numpy array of shape (max_nodes, max_nodes)
             num_nodes: Actual number of nodes in the graph
         """
-        ast_node = self.get_ast_node(code_string)
+        ast_node, edges, node_label_dict = self.get_ast_node(code_string)
         if ast_node is None:
             return None, 0
         
         # Build connection list
-        connections, num_nodes = self.build_connection_list(ast_node)
+        #connections, num_nodes = self.build_connection_list(ast_node)
+        # connections = edges
+        num_nodes = len(node_label_dict)
         
         # Create adjacency matrix
-        adj_matrix = self.create_adjacency_matrix(connections)
+        adj_matrix = self.create_adjacency_matrix_from_edges(edges, num_nodes)
         
         return adj_matrix, num_nodes
     
@@ -249,6 +281,7 @@ class PythonCodeProcessor:
             nodes: List of (node_id, token, parent_id) tuples
             next_id: Next available node ID
         """
+
         if nodes is None:
             nodes = []
         
@@ -257,6 +290,11 @@ class PythonCodeProcessor:
         
         current_id = node_id
         next_id = node_id + 1
+
+        node_kids = []
+        node_kids.append(node.children)
+
+        # if node.hasattr("body"):
         
         # Process children
         for child in node.children:
@@ -265,7 +303,7 @@ class PythonCodeProcessor:
         return nodes, next_id
     
     def visualize_graph(self, code_string, output_file='ast_graph.png', 
-                       max_nodes_display=50, layout='tree'):
+                       max_nodes_display=50, layout='spiral'):
         """Visualize the AST graph structure.
         
         Args:
@@ -282,11 +320,12 @@ class PythonCodeProcessor:
             return
         
         # Get AST and build node list
-        ast_node = self.get_ast_node(code_string)
+        ast_node, edges, node_label_dict = self.get_ast_node(code_string)
         if ast_node is None:
             return
-        
-        nodes, num_nodes = self.build_node_list(ast_node)
+
+        nodes = edges
+        num_nodes = len(node_label_dict)
         
         # Limit display for readability
         if num_nodes > max_nodes_display:
@@ -302,13 +341,14 @@ class PythonCodeProcessor:
             if parent_id is not None:
                 G.add_edge(parent_id, node_id)
         
+        
         # Create figure
         plt.figure(figsize=(16, 12))
         
         # Choose layout
         if layout == 'tree':
             # Hierarchical tree layout
-            pos = self._hierarchy_pos(G, root=0)
+            pos = self._hierarchy_pos(G, root=ast_node)
         elif layout == 'spring':
             pos = nx.spring_layout(G, k=2, iterations=50)
         elif layout == 'circular':
@@ -399,41 +439,41 @@ class PythonCodeProcessor:
         plt.close()
         print(f"Adjacency matrix saved to {output_file}")
     
-    def print_graph_info(self, code_string):
-        """Print detailed information about the graph structure."""
-        ast_node = self.get_ast_node(code_string)
-        if ast_node is None:
-            return
+    # def print_graph_info(self, code_string):
+    #     """Print detailed information about the graph structure."""
+    #     ast_node, edges = self.get_ast_node(code_string)
+    #     if ast_node is None:
+    #         return
         
-        nodes, num_nodes = self.build_node_list(ast_node)
-        connections, _ = self.build_connection_list(ast_node)
+    #     nodes, num_nodes = self.build_node_list(ast_node)
+    #     connections, _ = self.build_connection_list(ast_node)
         
-        print("=" * 60)
-        print("GRAPH STRUCTURE INFO")
-        print("=" * 60)
-        print(f"Total nodes: {num_nodes}")
-        print(f"\nNode list (ID, Token, Parent ID):")
-        print("-" * 60)
+    #     print("=" * 60)
+    #     print("GRAPH STRUCTURE INFO")
+    #     print("=" * 60)
+    #     print(f"Total nodes: {num_nodes}")
+    #     print(f"\nNode list (ID, Token, Parent ID):")
+    #     print("-" * 60)
         
-        for i, (node_id, token, parent_id) in enumerate(nodes[:20]):  # Show first 20
-            parent_str = str(parent_id) if parent_id is not None else "None (root)"
-            print(f"  {node_id:3d}: {token:20s} <- parent: {parent_str}")
+    #     for i, (node_id, token, parent_id) in enumerate(nodes[:20]):  # Show first 20
+    #         parent_str = str(parent_id) if parent_id is not None else "None (root)"
+    #         print(f"  {node_id:3d}: {token:20s} <- parent: {parent_str}")
         
-        if len(nodes) > 20:
-            print(f"  ... ({len(nodes) - 20} more nodes)")
+    #     if len(nodes) > 20:
+    #         print(f"  ... ({len(nodes) - 20} more nodes)")
         
-        # Calculate graph statistics
-        adj_matrix, _ = self.code_to_graph(code_string)
-        adj_cropped = adj_matrix[:num_nodes, :num_nodes]
+    #     # Calculate graph statistics
+    #     adj_matrix, _ = self.code_to_graph(code_string)
+    #     adj_cropped = adj_matrix[:num_nodes, :num_nodes]
         
-        num_edges = (np.sum(adj_cropped) - num_nodes) // 2  # Subtract self-loops, divide by 2 for undirected
+    #     num_edges = (np.sum(adj_cropped) - num_nodes) // 2  # Subtract self-loops, divide by 2 for undirected
         
-        print(f"\nGraph Statistics:")
-        print(f"  Nodes: {num_nodes}")
-        print(f"  Edges: {num_edges} (excluding self-loops)")
-        print(f"  Self-loops: {num_nodes}")
-        print(f"  Density: {num_edges / (num_nodes * (num_nodes - 1) / 2):.4f}" if num_nodes > 1 else "  Density: N/A")
-        print("=" * 60)
+    #     print(f"\nGraph Statistics:")
+    #     print(f"  Nodes: {num_nodes}")
+    #     print(f"  Edges: {num_edges} (excluding self-loops)")
+    #     print(f"  Self-loops: {num_nodes}")
+    #     print(f"  Density: {num_edges / (num_nodes * (num_nodes - 1) / 2):.4f}" if num_nodes > 1 else "  Density: N/A")
+    #     print("=" * 60)
     
     
     def process_pipeline(self, code_string, return_all=False):
@@ -450,7 +490,9 @@ class PythonCodeProcessor:
         results = {}
         
         # Parse to AST
-        ast_node = self.get_ast_node(code_string)
+        #print(code_string) 
+
+        ast_node, edges, node_label_dict = self.get_ast_node(code_string)
         if ast_node is None:
             return None if not return_all else {}
         
@@ -480,7 +522,16 @@ class PythonCodeProcessor:
 
 # Example usage
 if __name__ == '__main__':
-    with open("dataset/python/train.jsonl", "r") as f:
+
+    processor = PythonCodeProcessor(embedding_size=128)
+    code_string = """while(i < 5):\n\ti += 1\n\ti += 1\n\ti+=2\n\tprint(i)"""
+
+    tree = processor.parse_code(code_string)
+    astpretty.pprint(tree, show_offsets=False)
+    processor.visualize_graph(code_string, layout="circular")
+ 
+
+    with open("dataset/python/valid.jsonl", "r") as f:
         lines = f.readlines()
     data = [json.loads(line) for line in lines]
     sample_code = str(data[15730]['code'])
@@ -520,4 +571,4 @@ if __name__ == '__main__':
         
     processor.visualize_graph(sample_code, layout='tree')
     processor.visualize_adjacency_matrix(sample_code)
-    processor.print_graph_info(sample_code)
+    # processor.print_graph_info(sample_code)

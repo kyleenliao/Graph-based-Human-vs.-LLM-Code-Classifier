@@ -9,25 +9,25 @@
     "num_epochs": 30
   },
   "final_metrics": {
-    "accuracy": 88.4914463452566,
-    "precision": 85.16483516483517,
-    "recall": 93.93939393939394,
-    "f1": 89.33717579250721,
-    "auc": 0.961380578952464
+    "accuracy": 83.88090349075975,
+    "precision": 82.62548262548263,
+    "recall": 86.46464646464646,
+    "f1": 84.5014807502468,
+    "auc": 0.9190738280508635
   },
   "confusion_matrix": [
     [
-      259,
-      54
+      389,
+      90
     ],
     [
-      20,
-      310
+      67,
+      428
     ]
   ],
   "dataset_stats": {
-    "train_size": 656,
-    "test_size": 643,
-    "vocab_size": 5960
+    "train_size": 4916,
+    "test_size": 974,
+    "vocab_size": 345773
   }
 }

@@ -1,82 +1,12 @@
 import ast
+from collections import defaultdict
 
 class ASTNode(object):
-    def __init__(self, node):
+    def __init__(self, node, token=""):
         self.node = node
         self.is_str = isinstance(self.node, str)
-        self.token = self.get_token()
-        self.children = self.add_children()
-
-    def is_leaf(self):
-        if self.is_str:
-            return True
-        return len(list(ast.iter_child_nodes(self.node))) == 0
-
-    def get_token(self, lower=True):
-        if self.is_str:
-            return self.node
-        
-        name = self.node.__class__.__name__
-        token = name
-        is_name = False
-        
-        if self.is_leaf():
-            # Handle leaf nodes with specific attributes
-            if hasattr(self.node, 'id'):  # Name node
-                token = self.node.id
-                is_name = True
-            elif hasattr(self.node, 'name'):  # FunctionDef, ClassDef, etc.
-                token = self.node.name
-                is_name = True
-            elif hasattr(self.node, 'value'):  # Constant/Num/Str nodes
-                token = str(self.node.value) if hasattr(self.node, 'value') else name
-            elif hasattr(self.node, 'arg'):  # arguments
-                token = self.node.arg
-                is_name = True
-            else:
-                token = name
-        else:
-            # Handle operators
-            if hasattr(self.node, 'op'):
-                op_name = self.node.op.__class__.__name__
-                token = op_name
-            elif hasattr(self.node, 'ops'):  # Compare node
-                token = self.node.ops[0].__class__.__name__
-            else:
-                token = name
-        
-        if token is None:
-            token = name
-        if lower and is_name:
-            token = token.lower()
-        return token
-
-    def add_children(self):
-        if self.is_str:
-            return []
-        
-        children = list(ast.iter_child_nodes(self.node))
-        
-        # Python-specific control flow handling
-        if self.token in ['FunctionDef', 'AsyncFunctionDef']:
-            # Return only the body, skip decorators, args, returns
-            return [ASTNode(child) for child in self.node.body]
-        elif self.token in ['If']:
-            # Return only the test condition
-            return [ASTNode(self.node.test)]
-        elif self.token in ['While']:
-            return [ASTNode(self.node.test)]
-        elif self.token == 'For':
-            # Return target and iter, skip body
-            result = []
-            if hasattr(self.node, 'target'):
-                result.append(ASTNode(self.node.target))
-            if hasattr(self.node, 'iter'):
-                result.append(ASTNode(self.node.iter))
-            return result
-        else:
-            return [ASTNode(child) for child in children]
-
+        self.token = token
+        self.children = []
 
 class BlockNode(object):
     def __init__(self, node):
@@ -195,3 +125,154 @@ class SingleNode(ASTNode):
         if lower and is_name:
             token = token.lower()
         return token
+
+
+def defn_token(ast_node, lower=True):
+    if isinstance(ast_node, str):
+        return ast_node
+
+    name = ast_node.__class__.__name__
+    token = name
+    is_name = False
+
+    token = str(ast_node).split('_ast.')
+    if len(token) >= 2:
+        token = token[1]
+        token = token.split(' ')[0]
+    else:
+        token = name
+
+    # print("\n Token info: ", ast_node, token, name)
+
+    # if hasattr(ast_node, 'id'):  # Name node
+    #     token = ast_node.id
+    #     is_name = True
+    # elif hasattr(ast_node, 'name'):  # FunctionDef, ClassDef, etc.
+    #     token = ast_node.name
+    #     is_name = True
+    # elif hasattr(ast_node, 'value'):  # Constant/Num/Str nodes
+    #     token = str(ast_node.value)
+    # elif hasattr(ast_node, 'arg'):  # arguments
+    #     token = ast_node.arg
+    #     is_name = True
+    # elif hasattr(ast_node, 'op'):
+    #     op_name = ast_node.op.__class__.__name__
+    #     token = op_name
+    # elif hasattr(ast_node, 'ops'):  # Compare node
+    #     token = ast_node.ops[0].__class__.__name__
+    # else:
+        
+    #     else:
+    #         token = name
+
+    if token is None:
+        token = name
+
+    # print("Token info 2", token)
+
+    return token
+
+
+#unique nodes: thing talking abt with kyleen for tree vs graph structures
+# def instantiate_AST_Tree(root_node, node_label_dict = True, unique_nodes = True):
+#     node_label_dict = {}
+#     edges = []
+#     node_id_offsets = defaultdict(int)
+#     variable_ids = {}
+
+#     def get_node_id(child):
+#         child_node_id = defn_token(child) + "_" + str(id(child))
+
+#         if isinstance(child, ast.Name):
+#             variable_name = child.id
+#             if variable_name not in variable_ids:
+#                 variable_ids[variable_name] = str(len(variable_ids))  # Unique ID per variable name
+#             child_node_id = variable_ids[variable_name]
+
+#         if unique_nodes:
+#             node_id_offsets[child_node_id] += 1
+#             child_node_id += "_" + str(node_id_offsets[child_node_id])
+#             node_label_dict[child_node_id] = ASTNode(child, child_node_id)   
+
+#         elif child_node_id not in node_label_dict:
+#             node_label_dict[child_node_id] = ASTNode(child, child_node_id)
+
+#         return child_node_id
+
+#     for parent_node in ast.walk(root_node):
+
+#         print(parent_node)
+        
+#         parent_node_id = get_node_id(parent_node)
+
+#         for child_node in ast.iter_child_nodes(parent_node):
+#             child_node_id = get_node_id(child_node)
+            
+#             node_label_dict[parent_node_id].children.append(node_label_dict[child_node_id])
+
+#             edges.append([node_label_dict[child_node_id], node_label_dict[child_node_id].token, node_label_dict[parent_node_id]])
+
+#     for edge in edges:
+#         print(edge[1], edge[2].token)
+
+#     return root_node, edges
+
+def instantiate_AST_Tree(root_node, node_label_dict=None, unique_nodes=False):
+    if node_label_dict is None:
+        node_label_dict = {}
+
+    edges = []
+    node_id_offsets = defaultdict(int)
+
+    # Dictionary to map each variable name to a global unique ID
+    variable_ids = {}
+
+    def get_node_id(child):
+        # Ensure the ID is always a string
+        child_node_id = defn_token(child) + "_" + str(id(child))
+        
+        # For variable nodes (e.g., Name nodes), assign global unique IDs
+        if isinstance(child, ast.Name):
+            variable_name = child.id
+            if variable_name not in variable_ids:
+                # Assign a new global unique ID for each variable name
+                variable_ids[variable_name] = str(len(variable_ids))  # Can be any unique ID
+            child_node_id = variable_ids[variable_name]
+
+        # Ensure the node is added to the dictionary only once
+        if unique_nodes:
+            node_id_offsets[child_node_id] += 1
+            child_node_id += "_" + str(node_id_offsets[child_node_id])
+            node_label_dict[child_node_id] = ASTNode(child, child_node_id)    
+        elif child_node_id not in node_label_dict:
+            node_label_dict[child_node_id] = ASTNode(child, child_node_id)
+
+        return child_node_id
+
+    root_node_id = get_node_id(root_node)
+
+    # Traverse the AST and process the nodes
+    for parent_node in ast.walk(root_node):
+       # print(parent_node)  # For debugging
+        parent_node_id = get_node_id(parent_node)
+
+        for child_node in ast.iter_child_nodes(parent_node):
+            child_node_id = get_node_id(child_node)
+
+            # Add child node to the parent's children list
+            node_label_dict[parent_node_id].children.append(node_label_dict[child_node_id])
+
+            # Add edge between parent and child
+            edges.append([node_label_dict[child_node_id], node_label_dict[child_node_id].token, node_label_dict[parent_node_id]])
+
+    return node_label_dict[root_node_id], edges, node_label_dict  # Return the AST root node and the edges
+
+
+# code_string = """i += 1\ni+=2"""
+# tree = ast.parse(code_string)
+# r_n, edges, ids = instantiate_AST_Tree(tree)
+# print(edges)
+
+# r_n, edges, ids = instantiate_AST_Tree(tree, unique_nodes = False)
+# print(r_n)
+# print(edges)

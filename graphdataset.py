@@ -140,6 +140,7 @@ class CodeGraphDataset(Dataset):
                 
                 # Process batch
                 for item in batch:
+                    # print(item["index"])
                     try:
                         code_seq = self.processor.code_to_sequence(str(item['code']))
                         if code_seq:

@@ -63,9 +63,9 @@ class ASTNode(object):
             return [ASTNode(child) for child in self.node.body]
         elif self.token in ['If']:
             # Return only the test condition
-            return [ASTNode(self.node.test)]
+            return [ASTNode(self.node.test), ASTNode(self.node.body)]
         elif self.token in ['While']:
-            return [ASTNode(self.node.test)]
+            return [ASTNode(self.node.test), ASTNode(self.node.body)]
         elif self.token == 'For':
             # Return target and iter, skip body
             result = []
@@ -73,6 +73,8 @@ class ASTNode(object):
                 result.append(ASTNode(self.node.target))
             if hasattr(self.node, 'iter'):
                 result.append(ASTNode(self.node.iter))
+            if hasattr(self.node, 'body'):
+                result.append(ASTNode(self.node.body))
             return result
         else:
             return [ASTNode(child) for child in children]
@@ -110,11 +112,11 @@ class BlockNode(object):
                 # Get all children except body
                 children = []
                 for field, value in ast.iter_fields(root):
-                    if field != 'body':
-                        if isinstance(value, list):
-                            children.extend(value)
-                        elif isinstance(value, ast.AST):
-                            children.append(value)
+                    #if field != 'body':
+                    if isinstance(value, list):
+                        children.extend(value)
+                    elif isinstance(value, ast.AST):
+                        children.append(value)
             else:
                 children = list(ast.iter_child_nodes(root))
         elif isinstance(root, set):

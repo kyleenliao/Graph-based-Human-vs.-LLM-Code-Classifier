@@ -9,24 +9,24 @@
     "num_epochs": 30
   },
   "final_metrics": {
-    "accuracy": 94.11764705882352,
-    "precision": 94.84536082474226,
-    "recall": 93.87755102040816,
-    "f1": 94.35897435897436,
-    "auc": 0.9854391194680119
+    "accuracy": 94.6524064171123,
+    "precision": 94.0,
+    "recall": 95.91836734693877,
+    "f1": 94.94949494949495,
+    "auc": 0.9862416876863105
   },
   "confusion_matrix": [
     [
-      84,
-      5
+      83,
+      6
     ],
     [
-      6,
-      92
+      4,
+      94
     ]
   ],
   "dataset_stats": {
-    "train_size": 4907,
+    "train_size": 4908,
     "test_size": 187,
     "vocab_size": 3832
   }

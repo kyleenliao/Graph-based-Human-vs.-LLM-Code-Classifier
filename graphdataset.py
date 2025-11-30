@@ -206,12 +206,16 @@ class CodeGraphDataset(Dataset):
                     'code_num_nodes': code_results['num_nodes'],
                     'code_sequence': code_results['sequence'],
                     'code_indexed_blocks': code_results.get('indexed_blocks', None),
+                    'code_edge_type_matrix': code_results.get('edge_type_matrix', None),
+                    'code_edge_type_to_idx': code_results.get('edge_type_to_idx', None),
                     
                     # Contrast graphs
                     'contrast_graph': contrast_results['graph'],
                     'contrast_num_nodes': contrast_results['num_nodes'],
                     'contrast_sequence': contrast_results['sequence'],
                     'contrast_indexed_blocks': contrast_results.get('indexed_blocks', None),
+                    'contrast_edge_type_matrix': contrast_results.get('edge_type_matrix', None),
+                    'contrast_edge_type_to_idx': contrast_results.get('edge_type_to_idx', None),
                 }
                 
                 self.data.append(entry)
@@ -279,6 +283,8 @@ class CodeGraphDataset(Dataset):
                 - contrast_graph: adjacency matrix (max_nodes, max_nodes)
                 - code_sequence: list of vocabulary indices (integers)
                 - contrast_sequence: list of vocabulary indices (integers)
+                - code_edge_type_matrix: edge type matrix (max_nodes, max_nodes) or None
+                - contrast_edge_type_matrix: edge type matrix (max_nodes, max_nodes) or None
                 - label: classification label
                 - index: original index
         """
@@ -289,7 +295,7 @@ class CodeGraphDataset(Dataset):
         contrast_seq_indices = self._sequence_to_indices(item['contrast_sequence'])
         
         # Convert to tensors
-        return {
+        result = {
             'index': item['index'],
             'label': torch.tensor(item['label'], dtype=torch.long),
             
@@ -303,6 +309,14 @@ class CodeGraphDataset(Dataset):
             'contrast_num_nodes': item['contrast_num_nodes'],
             'contrast_sequence': contrast_seq_indices,  # Now integer indices
         }
+        
+        # Add edge type matrices if available
+        if item.get('code_edge_type_matrix') is not None:
+            result['code_edge_type_matrix'] = torch.from_numpy(item['code_edge_type_matrix']).long()
+        if item.get('contrast_edge_type_matrix') is not None:
+            result['contrast_edge_type_matrix'] = torch.from_numpy(item['contrast_edge_type_matrix']).long()
+        
+        return result
     
     def get_embedding_matrix(self):
         """Get the Word2Vec embedding matrix for use in GNN."""

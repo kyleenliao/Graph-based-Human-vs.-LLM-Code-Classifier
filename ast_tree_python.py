@@ -118,6 +118,73 @@ class ASTNode(object):
         else:
             return [ASTNode(child) for child in children]
 
+    def get_children_with_edge_types(self):
+        """Return children as tuples of (ASTNode, edge_type) where edge_type indicates
+        which AST attribute the child comes from (e.g., 'body', 'test', 'orelse', 'target', 'iter', 'child').
+        
+        Returns:
+            List of tuples: [(ASTNode, edge_type), ...]
+        """
+        if self.is_str:
+            return []
+        
+        children = list(ast.iter_child_nodes(self.node))
+
+        # Python-specific control flow handling with edge types
+        if self.token in ['FunctionDef', 'AsyncFunctionDef']:
+            # Return only the body, skip decorators, args, returns
+            return [(ASTNode(child), 'body') for child in self.node.body]
+        elif self.token in ['If']:
+            # Return test condition and bodies with edge types
+            result = [(ASTNode(self.node.test), 'test')]
+            if hasattr(self.node, 'body'):
+                result.extend([(ASTNode(child), 'body') for child in self.node.body])
+            if hasattr(self.node, 'orelse') and self.node.orelse:
+                result.extend([(ASTNode(child), 'orelse') for child in self.node.orelse])
+            return result
+        elif self.token in ['While']:
+            # Return test condition and body with edge types
+            result = [(ASTNode(self.node.test), 'test')]
+            if hasattr(self.node, 'body'):
+                result.extend([(ASTNode(child), 'body') for child in self.node.body])
+            if hasattr(self.node, 'orelse') and self.node.orelse:
+                result.extend([(ASTNode(child), 'orelse') for child in self.node.orelse])
+            return result
+        elif self.token == 'For':
+            # Return target, iter, and body with edge types
+            result = []
+            if hasattr(self.node, 'target'):
+                result.append((ASTNode(self.node.target), 'target'))
+            if hasattr(self.node, 'iter'):
+                result.append((ASTNode(self.node.iter), 'iter'))
+            if hasattr(self.node, 'body'):
+                result.extend([(ASTNode(child), 'body') for child in self.node.body])
+            if hasattr(self.node, 'orelse') and self.node.orelse:
+                result.extend([(ASTNode(child), 'orelse') for child in self.node.orelse])
+            return result
+        else:
+            # For other nodes, determine edge type from AST field name
+            # We need to map children back to their field names
+            result = []
+            mapped_ast_nodes = set()  # Track which AST nodes we've already mapped
+            
+            for field, value in ast.iter_fields(self.node):
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, ast.AST) and item in children:
+                            result.append((ASTNode(item), field))
+                            mapped_ast_nodes.add(id(item))  # Use id() to track AST node identity
+                elif isinstance(value, ast.AST) and value in children:
+                    result.append((ASTNode(value), field))
+                    mapped_ast_nodes.add(id(value))
+            
+            # If we couldn't map all children, use 'child' as default
+            for child in children:
+                if id(child) not in mapped_ast_nodes:
+                    result.append((ASTNode(child), 'child'))
+            
+            return result
+
 
 class BlockNode(object):
     def __init__(self, node):

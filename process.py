@@ -118,6 +118,44 @@ class PythonCodeProcessor:
         
         return connections, next_id
     
+    def build_connection_list_with_edge_types(self, node, connections=None, edge_types=None, node_id=0, parent_id=None, parent_edge_type=None):
+        """Build parent-child connection list from AST with edge type information.
+        
+        Returns:
+            connections: List where connections[i] contains the parent node ID of node i
+            edge_types: List where edge_types[i] contains the edge type from parent to node i
+            node_count: Total number of nodes
+        """
+        if connections is None:
+            connections = []
+        if edge_types is None:
+            edge_types = []
+        
+        # Add connection from current node to parent
+        if parent_id is not None:
+            connections.append(parent_id)
+            edge_types.append(parent_edge_type if parent_edge_type else 'child')
+        else:
+            connections.append(node_id)  # Root connects to itself
+            edge_types.append('self')  # Self-loop edge type
+        
+        current_id = node_id
+        next_id = node_id + 1
+        
+        # Process children with edge types
+        if hasattr(node, 'get_children_with_edge_types'):
+            children_with_types = node.get_children_with_edge_types()
+        else:
+            # Fallback for nodes without the method
+            children_with_types = [(child, 'child') for child in node.children]
+        
+        for child, edge_type in children_with_types:
+            connections, edge_types, next_id = self.build_connection_list_with_edge_types(
+                child, connections, edge_types, next_id, current_id, edge_type
+            )
+        
+        return connections, edge_types, next_id
+    
     def create_adjacency_matrix(self, connections, max_size=None):
         """Create adjacency matrix from connection list.
         
@@ -144,24 +182,98 @@ class PythonCodeProcessor:
         
         return adj_matrix
     
-    def code_to_graph(self, code_string):
+    def create_edge_type_matrix(self, connections, edge_types, max_size=None):
+        """Create edge type matrix from connection list and edge types.
+        
+        Edge types are encoded as integers:
+        - 0: 'self' (self-loop)
+        - 1: 'body'
+        - 2: 'test'
+        - 3: 'orelse'
+        - 4: 'target'
+        - 5: 'iter'
+        - 6: 'child' (default/generic)
+        - 7+: other field names (dynamically assigned)
+        
+        Args:
+            connections: List where connections[i] is the parent of node i
+            edge_types: List where edge_types[i] is the edge type from parent to node i
+            max_size: Maximum size of matrix (default: self.max_nodes)
+            
+        Returns:
+            edge_type_matrix: Integer numpy array of shape (max_size, max_size)
+            edge_type_to_idx: Dictionary mapping edge type strings to integer indices
+        """
+        if max_size is None:
+            max_size = self.max_nodes
+        
+        # Define standard edge types
+        standard_types = ['self', 'body', 'test', 'orelse', 'target', 'iter', 'child']
+        edge_type_to_idx = {etype: idx for idx, etype in enumerate(standard_types)}
+        
+        # Add any additional edge types found
+        next_idx = len(standard_types)
+        for etype in edge_types:
+            if etype not in edge_type_to_idx:
+                edge_type_to_idx[etype] = next_idx
+                next_idx += 1
+        
+        num_nodes = len(connections)
+        edge_type_matrix = np.zeros((max_size, max_size), dtype='int32')
+        
+        for i in range(num_nodes):
+            # Self-loop
+            edge_type_matrix[i][i] = edge_type_to_idx.get(edge_types[i], edge_type_to_idx['self'])
+            # Edge with parent (bidirectional, same type)
+            parent = connections[i]
+            edge_type_idx = edge_type_to_idx.get(edge_types[i], edge_type_to_idx['child'])
+            edge_type_matrix[i][parent] = edge_type_idx
+            edge_type_matrix[parent][i] = edge_type_idx
+        
+        return edge_type_matrix, edge_type_to_idx
+    
+    def code_to_graph(self, code_string, include_edge_types=False):
         """Convert code to graph adjacency matrix.
         
+        Args:
+            code_string: Python code string
+            include_edge_types: If True, also return edge type matrix
+        
         Returns:
-            adjacency_matrix: Boolean numpy array of shape (max_nodes, max_nodes)
-            num_nodes: Actual number of nodes in the graph
+            If include_edge_types=False:
+                adjacency_matrix: Boolean numpy array of shape (max_nodes, max_nodes)
+                num_nodes: Actual number of nodes in the graph
+            If include_edge_types=True:
+                adjacency_matrix: Boolean numpy array of shape (max_nodes, max_nodes)
+                num_nodes: Actual number of nodes in the graph
+                edge_type_matrix: Integer numpy array of shape (max_nodes, max_nodes)
+                edge_type_to_idx: Dictionary mapping edge type strings to integer indices
         """
         ast_node = self.get_ast_node(code_string)
         if ast_node is None:
+            if include_edge_types:
+                return None, 0, None, None
             return None, 0
         
-        # Build connection list
-        connections, num_nodes = self.build_connection_list(ast_node)
-        
-        # Create adjacency matrix
-        adj_matrix = self.create_adjacency_matrix(connections)
-        
-        return adj_matrix, num_nodes
+        if include_edge_types:
+            # Build connection list with edge types
+            connections, edge_types, num_nodes = self.build_connection_list_with_edge_types(ast_node)
+            
+            # Create adjacency matrix
+            adj_matrix = self.create_adjacency_matrix(connections)
+            
+            # Create edge type matrix
+            edge_type_matrix, edge_type_to_idx = self.create_edge_type_matrix(connections, edge_types)
+            
+            return adj_matrix, num_nodes, edge_type_matrix, edge_type_to_idx
+        else:
+            # Build connection list (backward compatibility)
+            connections, num_nodes = self.build_connection_list(ast_node)
+            
+            # Create adjacency matrix
+            adj_matrix = self.create_adjacency_matrix(connections)
+            
+            return adj_matrix, num_nodes
     
     def train_embedding_from_sequences(self, token_sequences, size=None):
         """Train Word2Vec embedding on pre-extracted token sequences.
@@ -265,34 +377,80 @@ class PythonCodeProcessor:
         
         return nodes, next_id
     
+    def build_node_list_with_edge_types(self, node, nodes=None, edges=None, node_id=0, parent_id=None, parent_edge_type=None):
+        """Build list of nodes with their tokens and edge types for visualization.
+        
+        Returns:
+            nodes: List of (node_id, token, parent_id) tuples
+            edges: List of (parent_id, node_id, edge_type) tuples
+            next_id: Next available node ID
+        """
+        if nodes is None:
+            nodes = []
+        if edges is None:
+            edges = []
+        
+        # Add current node
+        nodes.append((node_id, node.token, parent_id))
+        
+        # Add edge from parent if exists
+        if parent_id is not None:
+            edges.append((parent_id, node_id, parent_edge_type if parent_edge_type else 'child'))
+        
+        current_id = node_id
+        next_id = node_id + 1
+        
+        # Process children with edge types
+        if hasattr(node, 'get_children_with_edge_types'):
+            children_with_types = node.get_children_with_edge_types()
+        else:
+            # Fallback for nodes without the method
+            children_with_types = [(child, 'child') for child in node.children]
+        
+        for child, edge_type in children_with_types:
+            nodes, edges, next_id = self.build_node_list_with_edge_types(
+                child, nodes, edges, next_id, current_id, edge_type
+            )
+        
+        return nodes, edges, next_id
+    
     def visualize_graph(self, code_string, output_file='ast_graph.png', 
-                       max_nodes_display=50, layout='tree'):
-        """Visualize the AST graph structure.
+                       max_nodes_display=50, layout='tree', show_edge_types=True):
+        """Visualize the AST graph structure with edge types.
         
         Args:
             code_string: Python code to visualize
             output_file: Output image file path
             max_nodes_display: Maximum nodes to display (for readability)
             layout: Layout algorithm ('tree', 'spring', 'circular', 'kamada_kawai')
+            show_edge_types: If True, color-code edges by type and show edge labels
         """
         try:
             import matplotlib.pyplot as plt
+            import matplotlib.patches as mpatches
             import networkx as nx
         except ImportError:
             print("Please install: pip install matplotlib networkx")
             return
         
-        # Get AST and build node list
+        # Get AST and build node list with edge types
         ast_node = self.get_ast_node(code_string)
         if ast_node is None:
             return
         
-        nodes, num_nodes = self.build_node_list(ast_node)
+        if show_edge_types:
+            nodes, edges, num_nodes = self.build_node_list_with_edge_types(ast_node)
+        else:
+            nodes, num_nodes = self.build_node_list(ast_node)
+            edges = []
         
         # Limit display for readability
         if num_nodes > max_nodes_display:
             print(f"Graph has {num_nodes} nodes, displaying first {max_nodes_display}")
             nodes = nodes[:max_nodes_display]
+            # Filter edges to only include displayed nodes
+            displayed_node_ids = {node_id for node_id, _, _ in nodes}
+            edges = [(p, c, t) for p, c, t in edges if p in displayed_node_ids and c in displayed_node_ids]
         
         # Create NetworkX graph
         G = nx.DiGraph()
@@ -300,11 +458,22 @@ class PythonCodeProcessor:
         # Add nodes with labels
         for node_id, token, parent_id in nodes:
             G.add_node(node_id, label=token)
-            if parent_id is not None:
-                G.add_edge(parent_id, node_id)
+        
+        # Add edges with edge type information
+        edge_type_map = {}  # (parent, child) -> edge_type
+        if show_edge_types and edges:
+            for parent_id, child_id, edge_type in edges:
+                G.add_edge(parent_id, child_id)
+                edge_type_map[(parent_id, child_id)] = edge_type
+        else:
+            # Fallback: add edges from parent_id in nodes
+            for node_id, token, parent_id in nodes:
+                if parent_id is not None:
+                    G.add_edge(parent_id, node_id)
+                    edge_type_map[(parent_id, node_id)] = 'child'
         
         # Create figure
-        plt.figure(figsize=(16, 12))
+        plt.figure(figsize=(18, 14))
         
         # Choose layout
         if layout == 'tree':
@@ -322,15 +491,80 @@ class PythonCodeProcessor:
         # Get node labels
         labels = nx.get_node_attributes(G, 'label')
         
-        # Draw graph
+        # Define color mapping for edge types
+        edge_type_colors = {
+            'body': '#2E86AB',      # Blue
+            'test': '#A23B72',      # Purple
+            'orelse': '#F18F01',    # Orange
+            'target': '#C73E1D',    # Red
+            'iter': '#6A994E',      # Green
+            'child': '#6C757D',     # Gray
+            'self': '#000000',      # Black
+        }
+        
+        # Get unique edge types for legend
+        unique_edge_types = set(edge_type_map.values())
+        
+        # Draw edges with colors based on type
+        if show_edge_types and edge_type_map:
+            # Group edges by type for coloring
+            edges_by_type = {}
+            for (u, v), edge_type in edge_type_map.items():
+                if edge_type not in edges_by_type:
+                    edges_by_type[edge_type] = []
+                edges_by_type[edge_type].append((u, v))
+            
+            # Draw edges for each type
+            for edge_type, edge_list in edges_by_type.items():
+                color = edge_type_colors.get(edge_type, '#6C757D')  # Default gray
+                nx.draw_networkx_edges(
+                    G, pos, edgelist=edge_list,
+                    edge_color=color,
+                    arrows=True, arrowsize=15,
+                    arrowstyle='->', width=2.5, alpha=0.7,
+                    label=edge_type
+                )
+        else:
+            # Draw all edges in gray
+            nx.draw_networkx_edges(
+                G, pos, edge_color='gray',
+                arrows=True, arrowsize=15,
+                arrowstyle='->', width=2, alpha=0.6
+            )
+        
+        # Draw nodes
         nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
                               node_size=800, alpha=0.9)
-        nx.draw_networkx_edges(G, pos, edge_color='gray', 
-                              arrows=True, arrowsize=15, 
-                              arrowstyle='->', width=2, alpha=0.6)
+        
+        # Draw node labels
         nx.draw_networkx_labels(G, pos, labels, font_size=9, font_weight='bold')
         
-        plt.title(f"AST Graph Visualization ({len(nodes)} nodes)", 
+        # Add edge labels if showing edge types
+        if show_edge_types and edge_type_map:
+            edge_labels = {}
+            for (u, v), edge_type in edge_type_map.items():
+                # Only show edge labels for non-generic types to avoid clutter
+                if edge_type not in ['child', 'self']:
+                    edge_labels[(u, v)] = edge_type
+            
+            if edge_labels:
+                nx.draw_networkx_edge_labels(
+                    G, pos, edge_labels,
+                    font_size=7, font_color='darkred',
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7)
+                )
+        
+        # Create legend for edge types
+        if show_edge_types and unique_edge_types:
+            legend_elements = []
+            for edge_type in sorted(unique_edge_types):
+                color = edge_type_colors.get(edge_type, '#6C757D')
+                legend_elements.append(
+                    mpatches.Patch(color=color, label=edge_type, alpha=0.7)
+                )
+            plt.legend(handles=legend_elements, loc='upper left', fontsize=10)
+        
+        plt.title(f"AST Graph Visualization with Edge Types ({len(nodes)} nodes)", 
                  fontsize=14, fontweight='bold')
         plt.axis('off')
         plt.tight_layout()
@@ -476,10 +710,18 @@ class PythonCodeProcessor:
         if logging:
             print("blocks found")
         
-        # Get graph representation
-        graph, num_nodes = self.code_to_graph(code_string)
-        results['graph'] = graph
-        results['num_nodes'] = num_nodes
+        # Get graph representation with edge types
+        graph_result = self.code_to_graph(code_string, include_edge_types=True)
+        if graph_result[0] is not None:
+            results['graph'] = graph_result[0]
+            results['num_nodes'] = graph_result[1]
+            results['edge_type_matrix'] = graph_result[2]
+            results['edge_type_to_idx'] = graph_result[3]
+        else:
+            results['graph'] = None
+            results['num_nodes'] = 0
+            results['edge_type_matrix'] = None
+            results['edge_type_to_idx'] = None
 
         if logging:
             print("graph complete")

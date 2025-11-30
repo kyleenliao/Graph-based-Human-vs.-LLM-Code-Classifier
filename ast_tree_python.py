@@ -63,9 +63,9 @@ class ASTNode(object):
             return [ASTNode(child) for child in self.node.body]
         elif self.token in ['If']:
             # Return only the test condition
-            return [ASTNode(self.node.test), ASTNode(self.node.body)]
+            return [ASTNode(self.node.test)]
         elif self.token in ['While']:
-            return [ASTNode(self.node.test), ASTNode(self.node.body)]
+            return [ASTNode(self.node.test)]
         elif self.token == 'For':
             # Return target and iter, skip body
             result = []
@@ -73,11 +73,50 @@ class ASTNode(object):
                 result.append(ASTNode(self.node.target))
             if hasattr(self.node, 'iter'):
                 result.append(ASTNode(self.node.iter))
-            if hasattr(self.node, 'body'):
-                result.append(ASTNode(self.node.body))
             return result
         else:
             return [ASTNode(child) for child in children]
+        
+
+        # if self.is_str:
+        #     return []
+        
+        # children = list(ast.iter_child_nodes(self.node))
+
+        # # Python-specific control flow handling
+        # if self.token in ['FunctionDef', 'AsyncFunctionDef']:
+        #     # Return only the body, skip decorators, args, returns
+        #     return [ASTNode(child) for child in self.node.body]
+        # elif self.token in ['If']:
+        #     # Return test condition and bodies
+        #     result = [ASTNode(self.node.test)]
+        #     if hasattr(self.node, 'body'):
+        #         result.extend([ASTNode(child) for child in self.node.body])
+        #     if hasattr(self.node, 'orelse') and self.node.orelse:
+        #         result.extend([ASTNode(child) for child in self.node.orelse])
+        #     return result
+        # elif self.token in ['While']:
+        #     # Return test condition and body
+        #     result = [ASTNode(self.node.test)]
+        #     if hasattr(self.node, 'body'):
+        #         result.extend([ASTNode(child) for child in self.node.body])
+        #     if hasattr(self.node, 'orelse') and self.node.orelse:
+        #         result.extend([ASTNode(child) for child in self.node.orelse])
+        #     return result
+        # elif self.token == 'For':
+        #     # Return target, iter, and body
+        #     result = []
+        #     if hasattr(self.node, 'target'):
+        #         result.append(ASTNode(self.node.target))
+        #     if hasattr(self.node, 'iter'):
+        #         result.append(ASTNode(self.node.iter))
+        #     if hasattr(self.node, 'body'):
+        #         result.extend([ASTNode(child) for child in self.node.body])
+        #     if hasattr(self.node, 'orelse') and self.node.orelse:
+        #         result.extend([ASTNode(child) for child in self.node.orelse])
+        #     return result
+        # else:
+        #     return [ASTNode(child) for child in children]
 
 
 class BlockNode(object):

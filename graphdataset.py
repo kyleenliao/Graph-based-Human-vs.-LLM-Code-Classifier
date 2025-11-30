@@ -179,12 +179,20 @@ class CodeGraphDataset(Dataset):
             try:
                 # Process original code
                 code_results = self.processor.process_pipeline(str(item['code']), return_all=True)
-                
+
                 # Process contrast code
                 contrast_results = self.processor.process_pipeline(str(item['contrast']), return_all=True)
                 
                 # Skip if either failed to process
                 if code_results is None or contrast_results is None:
+                    # if code_results is None:
+                    #     print(f"Item {idx}, code_results failed")
+                    #     self.processor.process_pipeline(str(item['code']), return_all=True, logging=True)
+                    
+                    # if contrast_results is None:
+                    #     print(f"Item {idx}, contrast_results failed")
+                    #     self.processor.process_pipeline(str(item['contrast']), return_all=True, logging=True)
+
                     failed_count += 1
                     continue
                 

@@ -27,8 +27,9 @@ class PythonCodeProcessor:
             return str(refactored)
         except Exception as e:
             print("Conversion failed for snippet:", e)
+            cleaned = textwrap.dedent(code_str).replace("\r", "").rstrip() + "\n"
             #print(code_str)
-            return code_str
+            return str(cleaned)
         
     def parse_code(self, code_string):
         """Parse a Python code string into an AST tree."""
@@ -436,7 +437,7 @@ class PythonCodeProcessor:
         print("=" * 60)
     
     
-    def process_pipeline(self, code_string, return_all=False):
+    def process_pipeline(self, code_string, return_all=False, logging=False):
         """Complete processing pipeline for a single code string.
         
         Args:
@@ -454,26 +455,42 @@ class PythonCodeProcessor:
         if ast_node is None:
             return None if not return_all else {}
         
+        if logging:
+            print("Ast Node complete")
+        
         results['ast'] = ast_node
         
         # Get token sequence
         sequence = self.get_sequence(ast_node)
         results['sequence'] = sequence
         
+
+        if logging:
+            print("Sequence found")
+
         # Get blocks
         block_node = self.get_block_node(code_string)
         blocks = self.get_blocks(block_node) if block_node else []
         results['blocks'] = blocks
+
+        if logging:
+            print("blocks found")
         
         # Get graph representation
         graph, num_nodes = self.code_to_graph(code_string)
         results['graph'] = graph
         results['num_nodes'] = num_nodes
+
+        if logging:
+            print("graph complete")
         
         # Get indexed blocks (if embedding is trained)
         if self.vocab is not None:
             indexed_blocks = self.code_to_indexed_blocks(code_string)
             results['indexed_blocks'] = indexed_blocks
+
+        if logging:
+            print("indexed blocks were found")
         
         return results if return_all else results.get('indexed_blocks', blocks)
 

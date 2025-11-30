@@ -4,30 +4,30 @@
     "hidden_dim": 256,
     "num_layers": 5,
     "max_nodes": 500,
-    "batch_size": 32,
+    "batch_size": 64,
     "learning_rate": 0.001,
     "num_epochs": 30
   },
   "final_metrics": {
-    "accuracy": 88.4914463452566,
-    "precision": 85.16483516483517,
-    "recall": 93.93939393939394,
-    "f1": 89.33717579250721,
-    "auc": 0.961380578952464
+    "accuracy": 94.11764705882352,
+    "precision": 94.84536082474226,
+    "recall": 93.87755102040816,
+    "f1": 94.35897435897436,
+    "auc": 0.9854391194680119
   },
   "confusion_matrix": [
     [
-      259,
-      54
+      84,
+      5
     ],
     [
-      20,
-      310
+      6,
+      92
     ]
   ],
   "dataset_stats": {
-    "train_size": 656,
-    "test_size": 643,
-    "vocab_size": 5960
+    "train_size": 4907,
+    "test_size": 187,
+    "vocab_size": 3832
   }
 }

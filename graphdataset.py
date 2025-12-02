@@ -33,7 +33,7 @@ class CodeGraphDataset(Dataset):
                  timeout_minutes=10):  # NEW: Processing timeout
         """
         Args:
-            jsonl_path: Path to JSONL file with format: {index, code, contrast, label}
+            jsonl_path: Path to JSONL file with format: {index, code, contrast}
             processor: PythonCodeProcessor instance (creates new one if None)
             cache_dir: Directory to cache processed graphs (default: same dir as jsonl)
             force_reprocess: If True, reprocess even if cache exists
@@ -199,7 +199,6 @@ class CodeGraphDataset(Dataset):
                 # Create data entry
                 entry = {
                     'index': item['index'],
-                    'label': item['label'],
                     
                     # Code graphs
                     'code_graph': code_results['graph'],
@@ -283,9 +282,6 @@ class CodeGraphDataset(Dataset):
                 - contrast_graph: adjacency matrix (max_nodes, max_nodes)
                 - code_sequence: list of vocabulary indices (integers)
                 - contrast_sequence: list of vocabulary indices (integers)
-                - code_edge_type_matrix: edge type matrix (max_nodes, max_nodes) or None
-                - contrast_edge_type_matrix: edge type matrix (max_nodes, max_nodes) or None
-                - label: classification label
                 - index: original index
         """
         item = self.data[idx]
@@ -297,7 +293,6 @@ class CodeGraphDataset(Dataset):
         # Convert to tensors
         result = {
             'index': item['index'],
-            'label': torch.tensor(item['label'], dtype=torch.long),
             
             # Code graph data
             'code_graph': torch.from_numpy(item['code_graph']).float(),
@@ -343,7 +338,6 @@ class CodeGraphDataset(Dataset):
         
         code_nodes = [item['code_num_nodes'] for item in self.data]
         contrast_nodes = [item['contrast_num_nodes'] for item in self.data]
-        labels = [item['label'] for item in self.data]
         
         stats = {
             'total_samples': len(self.data),
@@ -353,9 +347,5 @@ class CodeGraphDataset(Dataset):
             'avg_contrast_nodes': np.mean(contrast_nodes),
             'max_contrast_nodes': np.max(contrast_nodes),
             'min_contrast_nodes': np.min(contrast_nodes),
-            'label_distribution': {
-                'label_0': labels.count(0),
-                'label_1': labels.count(1) if 1 in labels else 0
-            }
         }
         return stats

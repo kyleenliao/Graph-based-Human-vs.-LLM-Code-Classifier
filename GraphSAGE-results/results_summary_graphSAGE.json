@@ -1,0 +1,33 @@
+{
+  "model_config": {
+    "embedding_size": 128,
+    "hidden_dim": 256,
+    "num_layers": 5,
+    "max_nodes": 500,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "num_epochs": 30
+  },
+  "final_metrics": {
+    "accuracy": 90.22633744855966,
+    "precision": 92.37288135593221,
+    "recall": 88.08080808080808,
+    "f1": 90.17580144777662,
+    "auc": 0.9701310801939733
+  },
+  "confusion_matrix": [
+    [
+      441,
+      36
+    ],
+    [
+      59,
+      436
+    ]
+  ],
+  "dataset_stats": {
+    "train_size": 4907,
+    "test_size": 972,
+    "vocab_size": 11425
+  }
+}

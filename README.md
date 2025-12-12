@@ -8,4 +8,4 @@ More details about our coding process can be found here: https://medium.com/@ale
 
 We used code samples from the HMCorp dataset from Xu et al. (2024), and the generated graphs can be found here! https://drive.google.com/drive/folders/1oymtRBUOBOrm6DHBWugQBzs-_sG78vge?usp=sharing
 
-Replicate our results by running the corresponding classifier notebook!
+Replicate our results by running the corresponding classifier notebook for the model or with the ablation studies! To run this, you can use miniconda and install environment.yml. Download the datasets valid_no_comment.jsonl and test_no_comment.jsonl from the google drive to generate your datasets -- more information is discussed in the ablation studies notebook. 

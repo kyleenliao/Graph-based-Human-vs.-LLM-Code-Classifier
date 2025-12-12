@@ -715,11 +715,18 @@ class PythonCodeProcessor:
         
         # Get graph representation with edge types
         graph_result = self.code_to_graph(code_string)
-        if graph_result[0] is not None:
+
+
+        if self.edge_embeddings and graph_result[0] is not None:
             results['graph'] = graph_result[0]
             results['num_nodes'] = graph_result[1]
             results['edge_type_matrix'] = graph_result[2]
             results['edge_type_to_idx'] = graph_result[3]
+        elif not self.edge_embeddings and graph_result[0] is not None:
+            results['graph'] = graph_result[0]
+            results['num_nodes'] = graph_result[1]
+            results['edge_type_matrix'] = None
+            results['edge_type_to_idx'] = None
         else:
             results['graph'] = None
             results['num_nodes'] = 0

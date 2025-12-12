@@ -30,7 +30,9 @@ class CodeGraphDataset(Dataset):
                  embedding_size=128,
                  max_samples=None,  # NEW: Limit number of samples
                  num_workers=None,  # NEW: Parallel processing workers
-                 timeout_minutes=10):  # NEW: Processing timeout
+                 timeout_minutes=10,
+                 processor_args = {"simplified_ast": False, "edge_embeddings": False}
+                 ):  # NEW: Processing timeout
         """
         Args:
             jsonl_path: Path to JSONL file with format: {index, code, contrast, label}
@@ -48,6 +50,7 @@ class CodeGraphDataset(Dataset):
         self.embedding_size = embedding_size
         self.max_samples = max_samples
         self.timeout_minutes = timeout_minutes
+        self.processor_args = processor_args
         
         # Setup cache directory
         if cache_dir is None:
@@ -66,7 +69,8 @@ class CodeGraphDataset(Dataset):
         if processor is None:
             self.processor = PythonCodeProcessor(
                 embedding_size=embedding_size,
-                max_nodes=max_nodes
+                max_nodes=max_nodes,
+                **self.processor_args
             )
             self.needs_embedding = True
         else:

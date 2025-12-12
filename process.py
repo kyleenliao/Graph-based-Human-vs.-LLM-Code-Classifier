@@ -11,13 +11,14 @@ from ast_tree_python import ASTNode, BlockNode, SingleNode
 class PythonCodeProcessor:
     """Process Python code strings into various AST representations."""
     
-    def __init__(self, embedding_size=128, max_nodes=1000, simplified_ast=True):
+    def __init__(self, embedding_size=128, max_nodes=1000, simplified_ast=True, edge_embeddings=False):
         self.embedding_size = embedding_size
         self.w2v_model = None
         self.vocab = None
         self.max_token = None
         self.max_nodes = max_nodes
         self.simplified_ast = simplified_ast
+        self.edge_embeddings = edge_embeddings
         
     def convert_code_snippet(self, code_str):
         try:
@@ -233,18 +234,17 @@ class PythonCodeProcessor:
         
         return edge_type_matrix, edge_type_to_idx
     
-    def code_to_graph(self, code_string, include_edge_types=False):
+    def code_to_graph(self, code_string):
         """Convert code to graph adjacency matrix.
         
         Args:
             code_string: Python code string
-            include_edge_types: If True, also return edge type matrix
         
         Returns:
-            If include_edge_types=False:
+            if we don't have edge_embeddings, 
                 adjacency_matrix: Boolean numpy array of shape (max_nodes, max_nodes)
                 num_nodes: Actual number of nodes in the graph
-            If include_edge_types=True:
+            if we do have edge_embeddings, 
                 adjacency_matrix: Boolean numpy array of shape (max_nodes, max_nodes)
                 num_nodes: Actual number of nodes in the graph
                 edge_type_matrix: Integer numpy array of shape (max_nodes, max_nodes)
@@ -252,11 +252,11 @@ class PythonCodeProcessor:
         """
         ast_node = self.get_ast_node(code_string)
         if ast_node is None:
-            if include_edge_types:
+            if self.edge_embeddings:
                 return None, 0, None, None
             return None, 0
         
-        if include_edge_types:
+        if self.edge_embeddings:
             # Build connection list with edge types
             connections, edge_types, num_nodes = self.build_connection_list_with_edge_types(ast_node)
             
@@ -416,7 +416,7 @@ class PythonCodeProcessor:
         return nodes, edges, next_id
     
     def visualize_graph(self, code_string, output_file='ast_graph.png', 
-                       max_nodes_display=50, layout='tree', show_edge_types=True):
+                       max_nodes_display=50, layout='tree'):
         """Visualize the AST graph structure with edge types.
         
         Args:
@@ -424,7 +424,6 @@ class PythonCodeProcessor:
             output_file: Output image file path
             max_nodes_display: Maximum nodes to display (for readability)
             layout: Layout algorithm ('tree', 'spring', 'circular', 'kamada_kawai')
-            show_edge_types: If True, color-code edges by type and show edge labels
         """
         try:
             import matplotlib.pyplot as plt
@@ -439,7 +438,7 @@ class PythonCodeProcessor:
         if ast_node is None:
             return
         
-        if show_edge_types:
+        if self.edge_embeddings:
             nodes, edges, num_nodes = self.build_node_list_with_edge_types(ast_node)
         else:
             nodes, num_nodes = self.build_node_list(ast_node)
@@ -462,7 +461,7 @@ class PythonCodeProcessor:
         
         # Add edges with edge type information
         edge_type_map = {}  # (parent, child) -> edge_type
-        if show_edge_types and edges:
+        if self.edge_embeddings and edges:
             for parent_id, child_id, edge_type in edges:
                 G.add_edge(parent_id, child_id)
                 edge_type_map[(parent_id, child_id)] = edge_type
@@ -507,7 +506,7 @@ class PythonCodeProcessor:
         unique_edge_types = set(edge_type_map.values())
         
         # Draw edges with colors based on type
-        if show_edge_types and edge_type_map:
+        if self.edge_embeddings and edge_type_map:
             # Group edges by type for coloring
             edges_by_type = {}
             for (u, v), edge_type in edge_type_map.items():
@@ -541,7 +540,7 @@ class PythonCodeProcessor:
         nx.draw_networkx_labels(G, pos, labels, font_size=9, font_weight='bold')
         
         # Add edge labels if showing edge types
-        if show_edge_types and edge_type_map:
+        if self.edge_embeddings and edge_type_map:
             edge_labels = {}
             for (u, v), edge_type in edge_type_map.items():
                 # Only show edge labels for non-generic types to avoid clutter
@@ -556,7 +555,7 @@ class PythonCodeProcessor:
                 )
         
         # Create legend for edge types
-        if show_edge_types and unique_edge_types:
+        if self.edge_embeddings and unique_edge_types:
             legend_elements = []
             for edge_type in sorted(unique_edge_types):
                 color = edge_type_colors.get(edge_type, '#6C757D')
@@ -715,7 +714,7 @@ class PythonCodeProcessor:
             print("blocks found")
         
         # Get graph representation with edge types
-        graph_result = self.code_to_graph(code_string, include_edge_types=True)
+        graph_result = self.code_to_graph(code_string)
         if graph_result[0] is not None:
             results['graph'] = graph_result[0]
             results['num_nodes'] = graph_result[1]

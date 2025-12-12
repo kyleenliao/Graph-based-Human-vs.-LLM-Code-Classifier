@@ -11,12 +11,13 @@ from ast_tree_python import ASTNode, BlockNode, SingleNode
 class PythonCodeProcessor:
     """Process Python code strings into various AST representations."""
     
-    def __init__(self, embedding_size=128, max_nodes=1000):
+    def __init__(self, embedding_size=128, max_nodes=1000, simplified_ast=True):
         self.embedding_size = embedding_size
         self.w2v_model = None
         self.vocab = None
         self.max_token = None
         self.max_nodes = max_nodes
+        self.simplified_ast = simplified_ast
         
     def convert_code_snippet(self, code_str):
         try:
@@ -46,7 +47,7 @@ class PythonCodeProcessor:
         tree = self.parse_code(code_string)
         if tree is None:
             return None
-        return ASTNode(tree)
+        return ASTNode(tree, simplified=self.simplified_ast)
     
     def get_block_node(self, code_string):
         """Convert code string to BlockNode representation."""
@@ -568,9 +569,12 @@ class PythonCodeProcessor:
                  fontsize=14, fontweight='bold')
         plt.axis('off')
         plt.tight_layout()
-        plt.savefig(output_file, dpi=300, bbox_inches='tight', facecolor='white')
-        plt.close()
-        print(f"Graph visualization saved to {output_file}")
+
+        if output_file is None:
+            plt.show()
+        else:
+            print(f"Graph visualization saved to {output_file}")
+            plt.savefig(output_file, dpi=300, bbox_inches='tight', facecolor='white')
     
     def _hierarchy_pos(self, G, root=0, width=1., vert_gap=0.2, vert_loc=0, 
                       xcenter=0.5, pos=None, parent=None, parsed=[]):

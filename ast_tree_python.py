@@ -1,8 +1,9 @@
 import ast
 
 class ASTNode(object):
-    def __init__(self, node):
+    def __init__(self, node, simplified=True):
         self.node = node
+        self.simplified = simplified
         self.is_str = isinstance(self.node, str)
         self.token = self.get_token()
         self.children = self.add_children()
@@ -52,71 +53,61 @@ class ASTNode(object):
         return token
 
     def add_children(self):
-        # if self.is_str:
-        #     return []
-        
-        # children = list(ast.iter_child_nodes(self.node))
-        
-        # Python-specific control flow handling
-        # if self.token in ['FunctionDef', 'AsyncFunctionDef']:
-        #     # Return only the body, skip decorators, args, returns
-        #     return [ASTNode(child) for child in self.node.body]
-        # elif self.token in ['If']:
-        #     # Return only the test condition
-        #     return [ASTNode(self.node.test)]
-        # elif self.token in ['While']:
-        #     return [ASTNode(self.node.test)]
-        # elif self.token == 'For':
-        #     # Return target and iter, skip body
-        #     result = []
-        #     if hasattr(self.node, 'target'):
-        #         result.append(ASTNode(self.node.target))
-        #     if hasattr(self.node, 'iter'):
-        #         result.append(ASTNode(self.node.iter))
-        #     return result
-        # else:
-        #     return [ASTNode(child) for child in children]
-        
-
         if self.is_str:
             return []
-        
         children = list(ast.iter_child_nodes(self.node))
 
-        # Python-specific control flow handling
         if self.token in ['FunctionDef', 'AsyncFunctionDef']:
             # Return only the body, skip decorators, args, returns
-            return [ASTNode(child) for child in self.node.body]
-        elif self.token in ['If']:
-            # Return test condition and bodies
-            result = [ASTNode(self.node.test)]
-            if hasattr(self.node, 'body'):
-                result.extend([ASTNode(child) for child in self.node.body])
-            if hasattr(self.node, 'orelse') and self.node.orelse:
-                result.extend([ASTNode(child) for child in self.node.orelse])
-            return result
-        elif self.token in ['While']:
-            # Return test condition and body
-            result = [ASTNode(self.node.test)]
-            if hasattr(self.node, 'body'):
-                result.extend([ASTNode(child) for child in self.node.body])
-            if hasattr(self.node, 'orelse') and self.node.orelse:
-                result.extend([ASTNode(child) for child in self.node.orelse])
-            return result
-        elif self.token == 'For':
-            # Return target, iter, and body
-            result = []
-            if hasattr(self.node, 'target'):
-                result.append(ASTNode(self.node.target))
-            if hasattr(self.node, 'iter'):
-                result.append(ASTNode(self.node.iter))
-            if hasattr(self.node, 'body'):
-                result.extend([ASTNode(child) for child in self.node.body])
-            if hasattr(self.node, 'orelse') and self.node.orelse:
-                result.extend([ASTNode(child) for child in self.node.orelse])
-            return result
+            return [ASTNode(child, self.simplified) for child in self.node.body]
+
+        if self.simplified:
+            if self.token in ['If']:
+                # Return only the test condition
+                return [ASTNode(self.node.test, self.simplified)]
+            elif self.token in ['While']:
+                return [ASTNode(self.node.test, self.simplified)]
+            elif self.token == 'For':
+                # Return target and iter, skip body
+                result = []
+                if hasattr(self.node, 'target'):
+                    result.append(ASTNode(self.node.target, self.simplified))
+                if hasattr(self.node, 'iter'):
+                    result.append(ASTNode(self.node.iter, self.simplified))
+                return result
+            else:
+                return [ASTNode(child, self.simplified) for child in children]
         else:
-            return [ASTNode(child) for child in children]
+            if self.token in ['If']:
+                # Return test condition and bodies
+                result = [ASTNode(self.node.test, self.simplified)]
+                if hasattr(self.node, 'body'):
+                    result.extend([ASTNode(child, self.simplified) for child in self.node.body])
+                if hasattr(self.node, 'orelse') and self.node.orelse:
+                    result.extend([ASTNode(child, self.simplified) for child in self.node.orelse])
+                return result
+            elif self.token in ['While']:
+                # Return test condition and body
+                result = [ASTNode(self.node.test, self.simplified)]
+                if hasattr(self.node, 'body'):
+                    result.extend([ASTNode(child, self.simplified) for child in self.node.body])
+                if hasattr(self.node, 'orelse') and self.node.orelse:
+                    result.extend([ASTNode(child, self.simplified) for child in self.node.orelse])
+                return result
+            elif self.token == 'For':
+                # Return target, iter, and body
+                result = []
+                if hasattr(self.node, 'target'):
+                    result.append(ASTNode(self.node.target, self.simplified))
+                if hasattr(self.node, 'iter'):
+                    result.append(ASTNode(self.node.iter, self.simplified))
+                if hasattr(self.node, 'body'):
+                    result.extend([ASTNode(child, self.simplified) for child in self.node.body])
+                if hasattr(self.node, 'orelse') and self.node.orelse:
+                    result.extend([ASTNode(child, self.simplified) for child in self.node.orelse])
+                return result
+            else:
+                return [ASTNode(child, self.simplified) for child in children]
 
     def get_children_with_edge_types(self):
         """Return children as tuples of (ASTNode, edge_type) where edge_type indicates
@@ -133,34 +124,37 @@ class ASTNode(object):
         # Python-specific control flow handling with edge types
         if self.token in ['FunctionDef', 'AsyncFunctionDef']:
             # Return only the body, skip decorators, args, returns
-            return [(ASTNode(child), 'body') for child in self.node.body]
+            return [(ASTNode(child, self.simplified), 'body') for child in self.node.body]
         elif self.token in ['If']:
             # Return test condition and bodies with edge types
-            result = [(ASTNode(self.node.test), 'test')]
-            if hasattr(self.node, 'body'):
-                result.extend([(ASTNode(child), 'body') for child in self.node.body])
-            if hasattr(self.node, 'orelse') and self.node.orelse:
-                result.extend([(ASTNode(child), 'orelse') for child in self.node.orelse])
+            result = [(ASTNode(self.node.test, self.simplified), 'test')]
+            if not self.simplified:
+                if hasattr(self.node, 'body'):
+                    result.extend([(ASTNode(child, self.simplified), 'body') for child in self.node.body])
+                if hasattr(self.node, 'orelse') and self.node.orelse:
+                    result.extend([(ASTNode(child, self.simplified), 'orelse') for child in self.node.orelse])
             return result
         elif self.token in ['While']:
             # Return test condition and body with edge types
-            result = [(ASTNode(self.node.test), 'test')]
-            if hasattr(self.node, 'body'):
-                result.extend([(ASTNode(child), 'body') for child in self.node.body])
-            if hasattr(self.node, 'orelse') and self.node.orelse:
-                result.extend([(ASTNode(child), 'orelse') for child in self.node.orelse])
+            result = [(ASTNode(self.node.test, self.simplified), 'test')]
+            if not self.simplified:
+                if hasattr(self.node, 'body'):
+                    result.extend([(ASTNode(child, self.simplified), 'body') for child in self.node.body])
+                if hasattr(self.node, 'orelse') and self.node.orelse:
+                    result.extend([(ASTNode(child, self.simplified), 'orelse') for child in self.node.orelse])
             return result
         elif self.token == 'For':
             # Return target, iter, and body with edge types
             result = []
             if hasattr(self.node, 'target'):
-                result.append((ASTNode(self.node.target), 'target'))
+                result.append((ASTNode(self.node.target, self.simplified), 'target'))
             if hasattr(self.node, 'iter'):
-                result.append((ASTNode(self.node.iter), 'iter'))
-            if hasattr(self.node, 'body'):
-                result.extend([(ASTNode(child), 'body') for child in self.node.body])
-            if hasattr(self.node, 'orelse') and self.node.orelse:
-                result.extend([(ASTNode(child), 'orelse') for child in self.node.orelse])
+                result.append((ASTNode(self.node.iter, self.simplified), 'iter'))
+            if not self.simplified:
+                if hasattr(self.node, 'body'):
+                    result.extend([(ASTNode(child, self.simplified), 'body') for child in self.node.body])
+                if hasattr(self.node, 'orelse') and self.node.orelse:
+                    result.extend([(ASTNode(child, self.simplified), 'orelse') for child in self.node.orelse])
             return result
         else:
             # For other nodes, determine edge type from AST field name
@@ -172,16 +166,16 @@ class ASTNode(object):
                 if isinstance(value, list):
                     for item in value:
                         if isinstance(item, ast.AST) and item in children:
-                            result.append((ASTNode(item), field))
+                            result.append((ASTNode(item, self.simplified), field))
                             mapped_ast_nodes.add(id(item))  # Use id() to track AST node identity
                 elif isinstance(value, ast.AST) and value in children:
-                    result.append((ASTNode(value), field))
+                    result.append((ASTNode(value, self.simplified), field))
                     mapped_ast_nodes.add(id(value))
             
             # If we couldn't map all children, use 'child' as default
             for child in children:
                 if id(child) not in mapped_ast_nodes:
-                    result.append((ASTNode(child), 'child'))
+                    result.append((ASTNode(child, self.simplified), 'child'))
             
             return result
 
